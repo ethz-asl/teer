@@ -1,8 +1,9 @@
-import teer
+#import teer
+from teer import *
 
 def go_to(dest, dest_threshold = 1):
 	print 'Going to ' + str(dest)
-	teer.wait_condition(lambda: dist(pos, dest) > dest_threshold)
+	yield WaitCondition(lambda: dist(pos, dest) > dest_threshold)
 
 def exit_boat_house():
 	pass
@@ -22,24 +23,24 @@ def follow_path(path):
 def depth_control(depth):
 	while True:
 		print 'Control depth ' + str(depth)
-		teer.wait_duration(1)
+		yield WaitDuration(1)
 
 def energy_check(battery_threshold):
-	teer.wait_condition(lambda: battery_level < battery_threshold)
-	teer.kill_all_tasks_except([teer.get_task_id()])
+	yield WaitCondition(lambda: battery_level < battery_threshold)
+	yield KillAllTasksExcept([get_task_id()])
 	rospy.signal_shutdown("Energy too low")
 
 def dense_sample(outer_tasks):
 	while True:
-		teer.wait_condition(lambda: chlorophyl > 5)
-		teer.pause_tasks(outer_tasks)
+		yield WaitCondition(lambda: chlorophyl > 5)
+		yield PauseTasks(outer_tasks)
 		last_pos = pos
 		last_cable_length = cable_length
 		local_sample()
 		go_to(last_pos)
 		set_cable_length(last_cable_length)
-		teer.wait_condition([cable_length_done, lambda: pos == last_pos])
-		teer.resume_tasks(outer_tasks)
+		yield WaitCondition([cable_length_done, lambda: pos == last_pos])
+		yield ResumeTasks(outer_tasks)
 
 def complex_mission():
 	exit_boat_house()
@@ -47,14 +48,14 @@ def complex_mission():
 	start_logging()
 	deploy_probe()
 
-	this_tid = teer.get_task_id()
-	depth_control_tid = teer.new_task(depth_control(8))
+	this_tid = yield GetTaskId()
+	depth_control_tid = yield NewTask(depth_control(8))
 	these_tasks = [this_tid, depth_control_tid]
-	dense_sample_tid = teer.new_task(dense_sample(these_tasks))
+	dense_sample_tid = yield NewTask(dense_sample(these_tasks))
 
 	follow_path(x1)
 
-	teer.kill_tasks([dense_sample_tid, depth_control_tid])
+	yield KillTasks([dense_sample_tid, depth_control_tid])
 
 	zigzag_path(x2)
 

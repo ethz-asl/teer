@@ -1,38 +1,48 @@
-import teer
+from teer import *
+import sys
+
+def tick():
+	rate = yield CreateRate(3)
+	while True:
+		print '.',
+		sys.stdout.flush()
+		yield Sleep(rate)
 
 def world():
 	print 'World'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'happy'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'happy'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'happy'
-	yield teer.WaitDuration(2)
+	yield WaitDuration(2)
 	print 'but...'
 
 def hello():
+	tick_tid = yield NewTask(tick())
 	print 'Hello'
-	yield teer.WaitDuration(1)
+	yield WaitDuration(1)
 	print 'I am rather shy'
-	yield teer.WaitDuration(2)
+	yield WaitDuration(2)
 	print 'I might say it'
-	world_tid = yield teer.NewTask(world())
+	world_tid = yield NewTask(world())
 	print 'I\'m not alone'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'I talk'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'I talk'
-	yield teer.WaitDuration(0.2)
+	yield WaitDuration(0.2)
 	print 'Now I stop talking and wait'
-	yield teer.WaitTask(world_tid)
+	yield WaitTask(world_tid)
 	print 'World is dead now'
-	yield teer.WaitDuration(1)
+	yield WaitDuration(1)
 	print 'I liked world'
-	yield teer.WaitDuration(1)
+	yield WaitDuration(1)
 	print 'Really, I\'m tired, I will die...'
+	yield KillTask(tick_tid)
 
-sched = teer.BlockingScheduler()
+sched = BlockingScheduler()
 sched.new(hello())
 print 'Running scheduler'
 sched.run()
