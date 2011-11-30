@@ -42,7 +42,7 @@ def hello():
 	print 'Really, I\'m tired, I will die...'
 	yield KillTask(tick_tid)
 
-sched = BlockingScheduler()
+sched = TimerScheduler()
 sched.new(hello())
 print 'Running scheduler'
 sched.run()

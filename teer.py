@@ -22,6 +22,18 @@ class Task(object):
 		return self.target.send(self.sendval)
 
 # ------------------------------------------------------------
+#                === Conditional Variables ===
+# ------------------------------------------------------------
+class ConditionalVariable(object):
+	def __init__(self, initval=None):
+		self.val = initval
+	def __get__(self, obj, objtype):
+		return self.val
+	def __set__(self, obj, val):
+		self.val = val
+		obj.test_conditions()
+
+# ------------------------------------------------------------
 #                      === Scheduler ===
 # ------------------------------------------------------------
 class Scheduler(object):
@@ -131,17 +143,19 @@ class Scheduler(object):
 		print time.ctime() + " - Task %s (tid %d) terminated" % (task.target.__name__, task.tid)
 
 """ A scheduler that sleeps when there is nothing to do. """
-class BlockingScheduler(Scheduler):
+class TimerScheduler(Scheduler):
 	def __init__(self):
-		super(BlockingScheduler, self).__init__()
+		super(TimerScheduler, self).__init__()
 		self.timer_cb = []
 		self.timer_counter = 0
 	
+	# Implement the timer callback
 	def set_timer_callback(self,t, f):
 		#print 'Set timer callback at ' + str(t) + ' ' + str(self.current_time())
 		heapq.heappush(self.timer_cb, [t, self.timer_counter, f])
 		self.timer_counter += 1
 	
+	# Run until there is no task to schedule
 	def run(self):
 		while self.timer_cb or self.ready:
 			self.step()
@@ -151,6 +165,19 @@ class BlockingScheduler(Scheduler):
 				time.sleep(duration)
 			f()
 			self.step()
+	
+	# Schedule all tasks with past deadlines and step
+	def timer_step(self):
+		while self.timer_cb:
+			t, counter, f = heapq.heappop(self.timer_cb)
+			duration = t - self.current_time()
+			if duration <= 0:
+				f()
+			else:
+				heapq.heappush(self.timer_cb, [t, counter, f])
+				break
+		self.step()
+	
 
 """ Helper class to execute a loop at a certain rate """
 class Rate(object):
@@ -224,8 +251,8 @@ class KillAllTasksExcept(SystemCall):
 		self.except_tids = except_tids
 	def handle(self):
 		self.task.sendval = []
-		for task in self.sched.taskmap:
-			if task.tid not in self.except_tids:
+		for tid, task in self.sched.taskmap.items():
+			if tid not in self.except_tids:
 				task.target.close()
 				self.task.sendval.append(task)
 		self.sched.schedule(self.task)
