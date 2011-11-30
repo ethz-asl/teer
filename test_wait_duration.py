@@ -2,7 +2,7 @@ from teer import *
 import sys
 
 def tick():
-	rate = yield CreateRate(3)
+	rate = yield CreateRate(10)
 	while True:
 		print '.',
 		sys.stdout.flush()

@@ -91,6 +91,19 @@ class Scheduler(object):
 	def wait_duration(self,task,duration):
 		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task(task))
 	
+	def resume_task_rate(self,task,rate):
+		if task and task not in self.ready:
+			# get current time
+			rate.last_time = self.current_time()
+			# execute the resumed task directly once we exit the syscall
+			self.ready.appendleft(task)
+			return True
+		else:
+			return False
+	
+	def wait_duration_rate(self,task,duration,rate):
+		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task_rate(task, rate))
+	
 	def wait_condition(self,task,condition):
 		self.cond_waiting.append((condition, task))
 	
@@ -187,9 +200,8 @@ class Rate(object):
 	def sleep(self,sched,task):
 		cur_time = sched.current_time()
 		delta_time = self.duration - (cur_time - self.last_time)
-		self.last_time = cur_time
 		if delta_time > 0:
-			sched.wait_duration(task, delta_time)
+			sched.wait_duration_rate(task, delta_time, self)
 		else:
 			sched.schedule(task)
 		return delta_time
