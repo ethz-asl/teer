@@ -28,7 +28,7 @@ class Task(object):
 # ------------------------------------------------------------
 #                === Conditional Variables ===
 # ------------------------------------------------------------
-class ConditionalVariable(object):
+class ConditionVariable(object):
 	""" The basic conditional variable """
 	def __init__(self, initval=None):
 		self.val = initval

@@ -14,8 +14,10 @@ class ROSScheduler(Scheduler):
 	def __init__(self):
 		super(ROSScheduler, self).__init__()
 		self.wake_cond = threading.Condition()
+		self.running = True
 		def stop_run():
 			self.wake_cond.acquire()
+			self.running = False
 			self.wake_cond.notify()
 			self.wake_cond.release()
 		rospy.on_shutdown(stop_run)
@@ -37,7 +39,7 @@ class ROSScheduler(Scheduler):
 	def run(self):
 		self.wake_cond.acquire()
 		self.step()
-		while not rospy.is_shutdown():
+		while not rospy.is_shutdown() and self.running:
 			self.wake_cond.wait()
 			self.test_conditions() # suboptimal, when a timer waked us up, conditions have not changed
 			self.step()
@@ -45,7 +47,7 @@ class ROSScheduler(Scheduler):
 # ------------------------------------------------------------
 #	 === Conditional Variables working with ROS' threading ===
 # ------------------------------------------------------------
-class ROSConditionalVariable(object):
+class ROSConditionVariable(object):
 	""" A condtitional variable working with ROSScheduler """
 	def __init__(self, initval=None):
 		self.val = initval

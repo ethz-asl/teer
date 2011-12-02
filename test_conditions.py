@@ -1,10 +1,14 @@
+# -*- coding: utf-8 -*-
+# kate: replace-tabs off; indent-width 4; indent-mode normal
+# vim: ts=4:sw=4:noexpandtab
+
 from teer import *
 import sys
 import math
 
 class MyScheduler(TimerScheduler):
-	chlorophyll_level = ConditionalVariable(0.)
-	energy_level = ConditionalVariable(100)
+	chlorophyll_level = ConditionVariable(0.)
+	energy_level = ConditionVariable(100)
 
 def chlorophyll_detector():
 	global sched
