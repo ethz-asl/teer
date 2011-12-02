@@ -43,19 +43,24 @@ def dense_sample(outer_tasks):
 		yield ResumeTasks(outer_tasks)
 
 def complex_mission():
+	print 'It\'s going to be a complex mission'
 	exit_boat_house()
-	go_to(starting_point)
+	go_to(1,1)
 	start_logging()
 	deploy_probe()
 
-	this_tid = yield GetTaskId()
+	this_tid = yield GetTid()
 	depth_control_tid = yield NewTask(depth_control(8))
 	these_tasks = [this_tid, depth_control_tid]
 	dense_sample_tid = yield NewTask(dense_sample(these_tasks))
 
-	follow_path(x1)
+	follow_path(1)
 
 	yield KillTasks([dense_sample_tid, depth_control_tid])
 
-	zigzag_path(x2)
+	follow_path(2)
 
+sched = TimerScheduler()
+sched.new(complex_mission())
+print 'Running scheduler'
+sched.run()

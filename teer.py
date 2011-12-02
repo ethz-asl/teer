@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+# kate: replace-tabs off; indent-width 4; indent-mode normal
+# vim: ts=4:sw=4:noexpandtab
+
 # strongly inspired from http://www.dabeaz.com/coroutines/
 
 from collections import deque
@@ -8,13 +12,13 @@ import heapq
 #                       === Tasks ===
 # ------------------------------------------------------------
 class Task(object):
+	""" The object representing a task/co-routine in the scheduler """
 	taskid = 0
 	def __init__(self,target):
 		Task.taskid += 1
 		self.tid     = Task.taskid   # Task ID
 		self.target  = target        # Target coroutine
 		self.sendval = None          # Value to send
-
 	def __repr__(self):
 		return 'Task ' + str(self.tid) + ' (' + self.target.__name__ + ')'
 	# Run a task until it hits the next yield statement
@@ -25,6 +29,7 @@ class Task(object):
 #                === Conditional Variables ===
 # ------------------------------------------------------------
 class ConditionalVariable(object):
+	""" The basic conditional variable """
 	def __init__(self, initval=None):
 		self.val = initval
 	def __get__(self, obj, objtype):
@@ -37,6 +42,7 @@ class ConditionalVariable(object):
 #                      === Scheduler ===
 # ------------------------------------------------------------
 class Scheduler(object):
+	""" The scheduler base object, do not instanciate directly """
 	def __init__(self):
 		self.ready   = deque()   
 		self.taskmap = {}
@@ -107,8 +113,8 @@ class Scheduler(object):
 	def wait_condition(self,task,condition):
 		self.cond_waiting.append((condition, task))
 	
-	""" test all conditions """
 	def test_conditions(self):
+		""" test all conditions """
 		# check which conditions are true
 		still_blocked = []
 		for condition, task in self.cond_waiting:
@@ -143,6 +149,10 @@ class Scheduler(object):
 	def current_time(self):
 		return time.time()
 	
+	# Sleep a certain amount of time
+	def sleep(self, duration):
+		time.sleep(duration)
+	
 	# Execute function f at time t
 	def set_timer_callback(self, t, f):
 		raise NotImplementedError('timer callback mechanism must be provided by derived class')
@@ -155,15 +165,16 @@ class Scheduler(object):
 	def log_task_terminated(self, task):
 		print time.ctime() + " - Task %s (tid %d) terminated" % (task.target.__name__, task.tid)
 
-""" A scheduler that sleeps when there is nothing to do. """
 class TimerScheduler(Scheduler):
+	""" A scheduler that sleeps when there is nothing to do. """
+	
 	def __init__(self):
 		super(TimerScheduler, self).__init__()
 		self.timer_cb = []
 		self.timer_counter = 0
 	
 	# Implement the timer callback
-	def set_timer_callback(self,t, f):
+	def set_timer_callback(self, t, f):
 		#print 'Set timer callback at ' + str(t) + ' ' + str(self.current_time())
 		heapq.heappush(self.timer_cb, [t, self.timer_counter, f])
 		self.timer_counter += 1
@@ -175,7 +186,7 @@ class TimerScheduler(Scheduler):
 			t, counter, f = heapq.heappop(self.timer_cb)
 			duration = t - self.current_time()
 			if duration >= 0:
-				time.sleep(duration)
+				self.sleep(duration)
 			f()
 			self.step()
 	
@@ -191,9 +202,12 @@ class TimerScheduler(Scheduler):
 				break
 		self.step()
 	
+# ------------------------------------------------------------
+#                   === Helper objects ===
+# ------------------------------------------------------------
 
-""" Helper class to execute a loop at a certain rate """
 class Rate(object):
+	""" Helper class to execute a loop at a certain rate """
 	def __init__(self,duration,initial_time):
 		self.duration = duration
 		self.last_time = initial_time
@@ -210,20 +224,21 @@ class Rate(object):
 #                   === System Calls ===
 # ------------------------------------------------------------
 
-""" Parent of all system calls """
+
 class SystemCall(object):
-	""" Called in the scheduler context """
+	""" Parent of all system calls """
 	def handle(self):
+		""" Called in the scheduler context """
 		pass
 
-""" Return a task's ID number """
 class GetTid(SystemCall):
+	""" Return a task's ID number """
 	def handle(self):
 		self.task.sendval = self.task.tid
 		self.sched.schedule(self.task)
 
-""" Create a new task, return the task identifier """
 class NewTask(SystemCall):
+	""" Create a new task, return the task identifier """
 	def __init__(self,target):
 		self.target = target
 	def handle(self):
@@ -231,8 +246,8 @@ class NewTask(SystemCall):
 		self.task.sendval = tid
 		self.sched.schedule(self.task)
 
-""" Kill a task, return whether the task was killed """
 class KillTask(SystemCall):
+	""" Kill a task, return whether the task was killed """
 	def __init__(self,tid):
 		self.tid = tid
 	def handle(self):
@@ -244,8 +259,8 @@ class KillTask(SystemCall):
 			self.task.sendval = False
 		self.sched.schedule(self.task)
 
-""" Kill multiple tasks, return the list of killed tasks """
 class KillTasks(SystemCall):
+	""" Kill multiple tasks, return the list of killed tasks """
 	def __init__(self,tids):
 		self.tids = tids
 	def handle(self):
@@ -257,8 +272,8 @@ class KillTasks(SystemCall):
 				self.task.sendval.append(tid)
 		self.sched.schedule(self.task)
 
-""" Kill all tasks except a subsett, return the list of killed tasks """
 class KillAllTasksExcept(SystemCall):
+	""" Kill all tasks except a subsett, return the list of killed tasks """
 	def __init__(self,except_tids):
 		self.except_tids = except_tids
 	def handle(self):
@@ -269,8 +284,8 @@ class KillAllTasksExcept(SystemCall):
 				self.task.sendval.append(task)
 		self.sched.schedule(self.task)
 
-""" Wait for a task to exit, return whether the wait was a success """
 class WaitTask(SystemCall):
+	""" Wait for a task to exit, return whether the wait was a success """
 	def __init__(self,tid):
 		self.tid = tid
 	def handle(self):
@@ -281,8 +296,8 @@ class WaitTask(SystemCall):
 		if not result:
 			self.sched.schedule(self.task)
 
-""" Pause a taskk, return whether the task was paused successfully """
 class PauseTask(SystemCall):
+	""" Pause a task, return whether the task was paused successfully """
 	def __init__(self,tid):
 		self.tid = tid
 	def handle(self):
@@ -290,8 +305,8 @@ class PauseTask(SystemCall):
 		self.task.sendval = self.sched.pause_task(task)
 		self.sched.schedule(self.task)
 
-""" Pause multiple tasks, return the list of paused tasks """
 class PauseTasks(SystemCall):
+	""" Pause multiple tasks, return the list of paused tasks """
 	def __init__(self,tids):
 		self.tids = tids
 	def handle(self):
@@ -302,8 +317,8 @@ class PauseTasks(SystemCall):
 				self.task.sendval.append(tid)
 		self.sched.schedule(self.task)
 
-""" Resume a task, return whether the task was resumed successfully """
 class ResumeTask(SystemCall):
+	""" Resume a task, return whether the task was resumed successfully """
 	def __init__(self,tid):
 		self.tid = tid
 	def handle(self):
@@ -311,8 +326,8 @@ class ResumeTask(SystemCall):
 		self.task.sendval = self.sched.resume_task(task)
 		self.sched.schedule(self.task)
 
-""" Resume the execution of given tasks, return the list of resumed tasks """
 class ResumeTasks(SystemCall):
+	""" Resume the execution of given tasks, return the list of resumed tasks """
 	def __init__(self,tids):
 		self.tids = tids
 	def handle(self):
@@ -323,30 +338,30 @@ class ResumeTasks(SystemCall):
 				self.task.sendval.append(tid)
 		self.sched.schedule(self.task)
 
-""" Return the current time """
 class GetCurrentTime(SystemCall):
+	""" Return the current time """
 	def handle(self):
 		self.task.sendval = self.sched.current_time()
 		self.sched.schedule(self.task)
 
-""" Pause current task for a certain duration """
 class WaitDuration(SystemCall):
+	""" Pause current task for a certain duration """
 	def __init__(self,duration):
 		self.duration = duration
 	def handle(self):
 		self.sched.wait_duration(self.task, self.duration)
 		self.task.sendval = None
 
-""" Pause current task until the condition is true """
 class WaitCondition(SystemCall):
+	""" Pause current task until the condition is true """
 	def __init__(self,condition):
 		self.condition = condition
 	def handle(self):
 		self.sched.wait_condition(self.task,self.condition)
 		self.task.sendval = None
 
-""" Create a rate object, to have loops of certain frequencies """
 class CreateRate(SystemCall):
+	""" Create a rate object, to have loops of certain frequencies """
 	def __init__(self,rate):
 		self.duration = 1./rate
 	def handle(self):
@@ -354,8 +369,8 @@ class CreateRate(SystemCall):
 		self.task.sendval = Rate(self.duration, initial_time)
 		self.sched.schedule(self.task)
 
-""" Sleep using a rate object """
 class Sleep(SystemCall):
+	""" Sleep using a rate object """
 	def __init__(self,rate):
 		self.rate = rate
 	def handle(self):
