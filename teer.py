@@ -7,6 +7,8 @@
 from collections import deque
 import time
 import heapq
+import copy
+import inspect
 
 # ------------------------------------------------------------
 #                       === Tasks ===
@@ -32,11 +34,22 @@ class ConditionVariable(object):
 	""" The basic conditional variable """
 	def __init__(self, initval=None):
 		self.val = initval
+		self.myname = None
 	def __get__(self, obj, objtype):
 		return self.val
 	def __set__(self, obj, val):
 		self.val = val
-		obj.test_conditions()
+		self._set_name(obj)
+		obj.test_conditions(self.myname)
+	def _set_name(self,obj):
+		# if unknown, retrieve my own name
+		if self.myname is None:
+			for name in type(obj).__dict__:
+				value = type(obj).__dict__[name]
+				if value is self:
+					self.myname = name
+					break
+			assert self.myname is not None
 
 # ------------------------------------------------------------
 #                      === Scheduler ===
@@ -49,7 +62,7 @@ class Scheduler(object):
 		# Tasks waiting for other tasks to exit
 		self.exit_waiting = {}
 		# Task waiting on conditions
-		self.cond_waiting = []
+		self.cond_waiting = {}
 	
 	def new(self,target):
 		newtask = Task(target)
@@ -110,19 +123,45 @@ class Scheduler(object):
 	def wait_duration_rate(self,task,duration,rate):
 		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task_rate(task, rate))
 	
-	def wait_condition(self,task,condition):
-		self.cond_waiting.append((condition, task))
+	def _add_condition(self,entry):
+		condition = entry[0]
+		vars_in_cond = dict(inspect.getmembers(dict(inspect.getmembers(condition))['func_code']))['co_names']
+		for var in vars_in_cond:
+			if var not in self.cond_waiting:
+				self.cond_waiting[var] = []
+			self.cond_waiting[var].append(entry)
 	
-	def test_conditions(self):
-		""" test all conditions """
+	def _del_condition(self,candidate):
+		(condition, task) = candidate
+		vars_in_cond = dict(inspect.getmembers(dict(inspect.getmembers(condition))['func_code']))['co_names']
+		for var in vars_in_cond:
+			if var in self.cond_waiting:
+				self.cond_waiting[var].remove(candidate)
+	
+	def wait_condition(self,task,condition):
+		entry = (condition,task)
+		self._add_condition(entry)
+	
+	def test_conditions(self, name):
+		# is there any task waiting on this name?
+		if name not in self.cond_waiting:
+			return
 		# check which conditions are true
-		still_blocked = []
-		for condition, task in self.cond_waiting:
+		candidates = copy.copy(self.cond_waiting[name])
+		for candidate in candidates:
+			(condition, task) = candidate
 			if condition():
 				self.schedule(task)
-			else:
-				still_blocked.append((condition, task))
-		self.cond_waiting = still_blocked
+				self._del_condition(candidate)
+		
+		## check which conditions are true
+		#still_blocked = []
+		#for condition, task in self.cond_waiting:
+			#if condition():
+				#self.schedule(task)
+			#else:
+				#still_blocked.append((condition, task))
+		#self.cond_waiting = still_blocked
 
 	# Run all tasks until none is ready
 	def step(self):

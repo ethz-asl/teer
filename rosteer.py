@@ -47,14 +47,15 @@ class ROSScheduler(Scheduler):
 # ------------------------------------------------------------
 #	 === Conditional Variables working with ROS' threading ===
 # ------------------------------------------------------------
-class ROSConditionVariable(object):
-	""" A condtitional variable working with ROSScheduler """
+class ROSConditionVariable(ConditionVariable):
+	""" A conditional variable working with ROSScheduler """
 	def __init__(self, initval=None):
-		self.val = initval
+		super(ROSConditionVariable, self).__init__(initval)
 	def __get__(self, obj, objtype):
 		return self.val
 	def __set__(self, obj, val):
 		obj.wake_cond.acquire()
 		self.val = val
+		self._set_name(obj)
 		obj.wake_cond.notify()
 		obj.wake_cond.release()
