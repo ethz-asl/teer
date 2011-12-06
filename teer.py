@@ -137,20 +137,15 @@ class Scheduler(object):
 		for var in vars_in_cond:
 			if var in self.cond_waiting:
 				self.cond_waiting[var].remove(candidate)
+				if not self.cond_waiting[var]:
+					del self.cond_waiting[var]
 	
 	def wait_condition(self,task,condition):
 		# add a new condition and directly evalutate it once
 		entry = (condition,task)
-		self._add_condition(entry)
-		self._test_condition(entry)
+		if not condition():
+			self._add_condition(entry)
 		
-	def _test_condition(self, candidate):
-		# Evaluate one condition
-		(condition, task) = candidate
-		if condition():
-			self.schedule(task)
-			self._del_condition(candidate)
-	
 	def test_conditions(self, name):
 		# is there any task waiting on this name?
 		if name not in self.cond_waiting:
@@ -158,15 +153,10 @@ class Scheduler(object):
 		# check which conditions are true
 		candidates = copy.copy(self.cond_waiting[name])
 		for candidate in candidates:
-			self._test_condition(candidate)
-		## check which conditions are true
-		#still_blocked = []
-		#for condition, task in self.cond_waiting:
-			#if condition():
-				#self.schedule(task)
-			#else:
-				#still_blocked.append((condition, task))
-		#self.cond_waiting = still_blocked
+			(condition, task) = candidate
+			if condition():
+				self.schedule(task)
+				self._del_condition(candidate)
 
 	# Run all tasks until none is ready
 	def step(self):
@@ -225,7 +215,7 @@ class TimerScheduler(Scheduler):
 	
 	# Run until there is no task to schedule
 	def run(self):
-		while self.timer_cb or self.ready:
+		while self.timer_cb or self.ready or self.cond_waiting:
 			self.step()
 			t, counter, f = heapq.heappop(self.timer_cb)
 			duration = t - self.current_time()
