@@ -139,8 +139,17 @@ class Scheduler(object):
 				self.cond_waiting[var].remove(candidate)
 	
 	def wait_condition(self,task,condition):
+		# add a new condition and directly evalutate it once
 		entry = (condition,task)
 		self._add_condition(entry)
+		self._test_condition(entry)
+		
+	def _test_condition(self, candidate):
+		# Evaluate one condition
+		(condition, task) = candidate
+		if condition():
+			self.schedule(task)
+			self._del_condition(candidate)
 	
 	def test_conditions(self, name):
 		# is there any task waiting on this name?
@@ -149,11 +158,7 @@ class Scheduler(object):
 		# check which conditions are true
 		candidates = copy.copy(self.cond_waiting[name])
 		for candidate in candidates:
-			(condition, task) = candidate
-			if condition():
-				self.schedule(task)
-				self._del_condition(candidate)
-		
+			self._test_condition(candidate)
 		## check which conditions are true
 		#still_blocked = []
 		#for condition, task in self.cond_waiting:

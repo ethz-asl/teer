@@ -21,6 +21,7 @@ class ROSScheduler(Scheduler):
 			self.wake_cond.notify()
 			self.wake_cond.release()
 		rospy.on_shutdown(stop_run)
+		self.updated_condvars = []
 	
 	def current_time(self):
 		return rospy.Time.now().to_sec()
@@ -41,7 +42,10 @@ class ROSScheduler(Scheduler):
 		self.step()
 		while not rospy.is_shutdown() and self.running:
 			self.wake_cond.wait()
-			self.test_conditions() # suboptimal, when a timer waked us up, conditions have not changed
+			self.updated_condvars = list(set(self.updated_condvars))			
+			for var in self.updated_condvars: 
+				self.test_conditions(var) # suboptimal, when a timer waked us up, conditions have not changed
+			self.updated_condvars = []
 			self.step()
 
 # ------------------------------------------------------------
@@ -57,5 +61,6 @@ class ROSConditionVariable(ConditionVariable):
 		obj.wake_cond.acquire()
 		self.val = val
 		self._set_name(obj)
+		obj.updated_condvars.append(self.myname)
 		obj.wake_cond.notify()
 		obj.wake_cond.release()
