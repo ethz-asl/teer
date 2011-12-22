@@ -39,17 +39,23 @@ class ConditionVariable(object):
 		return self.val
 	def __set__(self, obj, val):
 		self.val = val
-		self._set_name(obj)
+		self._set_name(type(obj))
 		obj.test_conditions(self.myname)
-	def _set_name(self,obj):
+	def _set_name(self, cls, top_level=True):
 		# if unknown, retrieve my own name
 		if self.myname is None:
-			for name in type(obj).__dict__:
-				value = type(obj).__dict__[name]
+			members = cls.__dict__
+			# first look into members
+			for name, value in members.iteritems():
 				if value is self:
 					self.myname = name
 					break
-			assert self.myname is not None
+			# look into parents
+			for parent_cls in cls.__bases__:
+				self._set_name(parent_cls,False)
+			# if not found and top-level, assert
+			if top_level:
+				assert self.myname is not None
 
 # ------------------------------------------------------------
 #                      === Scheduler ===
@@ -145,6 +151,8 @@ class Scheduler(object):
 		entry = (condition,task)
 		if not condition():
 			self._add_condition(entry)
+		else:
+			self.ready.appendleft(task)
 		
 	def test_conditions(self, name):
 		# is there any task waiting on this name?

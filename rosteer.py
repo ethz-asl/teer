@@ -16,6 +16,7 @@ class ROSScheduler(Scheduler):
 		self.wake_cond = threading.Condition()
 		self.running = True
 		self.in_timer_count = 0
+		self.timer_count = 0
 		def stop_run():
 			self.wake_cond.acquire()
 			self.running = False
@@ -58,7 +59,7 @@ class ROSConditionVariable(ConditionVariable):
 	def __set__(self, obj, val):
 		obj.wake_cond.acquire()
 		self.val = val
-		self._set_name(obj)
+		self._set_name(type(obj))
 		obj.test_conditions(self.myname)
 		obj.wake_cond.notify()
 		obj.wake_cond.release()
