@@ -417,6 +417,14 @@ class Sleep(SystemCall):
 		self.rate = rate
 	def handle(self):
 		self.task.sendval = self.rate.sleep(self.sched, self.task)
+		
+class TeerPrint(SystemCall):
+	""" Print something including the current task id"""
+	def __init__(self, msg):
+		self.msg = msg
+	def handle(self):
+		print "[teer tid: " + str(self.task.tid) + "] " + self.msg
+		self.sched.schedule(self.task)
 
 # TODO list
 # - if needed, events
