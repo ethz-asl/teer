@@ -16,7 +16,6 @@ class ROSScheduler(Scheduler):
 		self.wake_cond = threading.Condition()
 		self.running = True
 		self.in_timer_count = 0
-		self.timer_count = 0
 		def stop_run():
 			self.wake_cond.acquire()
 			self.running = False
@@ -37,7 +36,7 @@ class ROSScheduler(Scheduler):
 			f()
 			self.wake_cond.notify()
 			self.wake_cond.release()
-		self.timer_count += 1
+		self.in_timer_count += 1
 		rospy.Timer(rospy.Duration(t - self.current_time()), timer_callback, True)
 	
 	def run(self):
