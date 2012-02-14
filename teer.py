@@ -63,12 +63,17 @@ class ConditionVariable(object):
 class Scheduler(object):
 	""" The scheduler base object, do not instanciate directly """
 	def __init__(self):
-		self.ready   = deque()   
+		# Map of all tasks
 		self.taskmap = {}
-		# Tasks waiting for other tasks to exit
+		# Deque of ready tasks
+		self.ready   = deque()   
+		# Tasks waiting for other tasks to exit, map of: tid => list of tasks
 		self.exit_waiting = {}
-		# Task waiting on conditions
+		# Task waiting on conditions, map of: "name of condition variable" => (condition, task)
 		self.cond_waiting = {}
+		# Task being paused by another task
+		self.paused_in_syscall = set()
+		self.paused_in_ready = set()
 	
 	def new(self,target):
 		newtask = Task(target)
@@ -92,45 +97,56 @@ class Scheduler(object):
 			return False
 
 	def schedule(self,task):
-		self.ready.append(task)
+		if task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			self.paused_in_ready.add(task)
+		else:
+			self.ready.append(task)
 	
 	def schedule_now(self,task):
-		self.ready.appendleft(task)
+		if task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			self.paused_in_ready.add(task)
+		else:
+			self.ready.appendleft(task)
 	
 	def pause_task(self,task):
-		if task:
-			try:
-				self.ready.remove(task)
-			except ValueError:
-				return False
-			else:
-				return True
-		else:
+		if task is None:
 			return False
+		if task in self.paused_in_ready or task in self.paused_in_syscall:
+			return False
+		elif task in self.ready:
+			self.ready.remove(task)
+			self.paused_in_ready.add(task)
+		else:
+			self.paused_in_syscall.add(task)
+		return True
 	
 	def resume_task(self,task):
-		if task and task not in self.ready:
+		if task is None:
+			return False
+		if task in self.paused_in_ready:
 			# execute the resumed task directly once we exit the syscall
+			self.paused_in_ready.remove(task)
 			self.ready.appendleft(task)
 			return True
-		else:
-			return False
+		elif task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			return True
+		return False
 		
 	def wait_duration(self,task,duration):
-		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task(task))
-	
-	def resume_task_rate(self,task,rate):
-		if task and task not in self.ready:
-			# get current time
-			rate.last_time = self.current_time()
-			# execute the resumed task directly once we exit the syscall
-			self.ready.appendleft(task)
-			return True
-		else:
-			return False
+		def resume(task):
+			self.schedule_now(task)
+		self.set_timer_callback(self.current_time()+duration, lambda: resume(task))
 	
 	def wait_duration_rate(self,task,duration,rate):
-		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task_rate(task, rate))
+		def resume(task,rate):
+			# get current time
+			rate.last_time = self.current_time()
+			# if not paused, execute the resumed task directly once we exit the syscall
+			self.schedule_now(task)
+		self.set_timer_callback(self.current_time()+duration, lambda: resume(task, rate))
 	
 	def _add_condition(self,entry):
 		condition = entry[0]
@@ -155,7 +171,7 @@ class Scheduler(object):
 		if not condition():
 			self._add_condition(entry)
 		else:
-			self.ready.appendleft(task)
+			self.schedule_now(task)
 		
 	def test_conditions(self, name):
 		# is there any task waiting on this name?
@@ -165,7 +181,7 @@ class Scheduler(object):
 		candidates = copy.copy(self.cond_waiting[name])
 		for candidate in candidates:
 			(condition, task) = candidate
-			if condition():
+			if task not in self.paused_in_syscall and condition():
 				self.schedule(task)
 				self._del_condition(candidate)
 
