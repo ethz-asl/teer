@@ -94,6 +94,9 @@ class Scheduler(object):
 	def schedule(self,task):
 		self.ready.append(task)
 	
+	def schedule_now(self,task):
+		self.ready.appendleft(task)
+	
 	def pause_task(self,task):
 		if task:
 			try:
@@ -279,6 +282,12 @@ class GetTid(SystemCall):
 		self.task.sendval = self.task.tid
 		self.sched.schedule(self.task)
 
+class GetTids(SystemCall):
+	""" Return all task IDs """
+	def handle(self):
+		self.task.sendval = self.sched.taskmap.keys()
+		self.sched.schedule(self.task)
+
 class NewTask(SystemCall):
 	""" Create a new task, return the task identifier """
 	def __init__(self,target):
@@ -315,7 +324,7 @@ class KillTasks(SystemCall):
 		self.sched.schedule(self.task)
 
 class KillAllTasksExcept(SystemCall):
-	""" Kill all tasks except a subsett, return the list of killed tasks """
+	""" Kill all tasks except a subset, return the list of killed tasks """
 	def __init__(self,except_tids):
 		self.except_tids = except_tids
 	def handle(self):
