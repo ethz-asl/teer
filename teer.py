@@ -15,12 +15,15 @@ import inspect
 # ------------------------------------------------------------
 class Task(object):
 	""" The object representing a task/co-routine in the scheduler """
+	WAIT_ANY = 1
+	WAIT_ALL = 2
 	taskid = 0
 	def __init__(self,target):
 		Task.taskid += 1
 		self.tid     = Task.taskid   # Task ID
 		self.target  = target        # Target coroutine
 		self.sendval = None          # Value to send
+		self.waitmode = Task.WAIT_ANY
 	def __repr__(self):
 		return 'Task ' + str(self.tid) + ' (' + self.target.__name__ + ')'
 	# Run a task until it hits the next yield statement
@@ -63,12 +66,17 @@ class ConditionVariable(object):
 class Scheduler(object):
 	""" The scheduler base object, do not instanciate directly """
 	def __init__(self):
-		self.ready   = deque()   
+				# Map of all tasks
 		self.taskmap = {}
-		# Tasks waiting for other tasks to exit
+		# Deque of ready tasks
+		self.ready   = deque()   
+		# Tasks waiting for other tasks to exit, map of: tid => list of tasks
 		self.exit_waiting = {}
-		# Task waiting on conditions
+		# Task waiting on conditions, map of: "name of condition variable" => (condition, task)
 		self.cond_waiting = {}
+		# Task being paused by another task
+		self.paused_in_syscall = set()
+		self.paused_in_ready = set()
 	
 	def new(self,target):
 		newtask = Task(target)
@@ -77,12 +85,31 @@ class Scheduler(object):
 		self.log_task_created(newtask)
 		return newtask.tid
 
-	def exit(self,task):
-		self.log_task_terminated(task)
-		del self.taskmap[task.tid]
+	def exit(self,exiting_task):
+		self.log_task_terminated(exiting_task)
+		del self.taskmap[exiting_task.tid]
 		# Notify other tasks waiting for exit
-		for task in self.exit_waiting.pop(task.tid,[]):
+		to_remove_keys = []
+		for task in self.exit_waiting.pop(exiting_task.tid,[]):
+			if task.waitmode == Task.WAIT_ANY:
+				# remove associations to other tasks waited on
+				for waited_tid, waiting_tasks_list in self.exit_waiting.iteritems():
+					# remove task form list of waiting tasks if in there
+					for waiting_task in waiting_tasks_list:
+						if waiting_task.tid == task.tid:
+							waiting_tasks_list.remove(waiting_task)
+				# return the tid of the exiting_task 
+				task.sendval = exiting_task.tid
 			self.schedule(task)
+			else:
+				are_still_waiting = False
+				for waited_tid, waiting_tasks_list in self.exit_waiting.iteritems():
+					for waiting_task in waiting_tasks_list:
+						if waiting_task.tid == task.tid:
+							are_still_waiting = True
+				if not are_still_waiting:
+					self.schedule(task)
+		self.exit_waiting = dict((k,v) for (k,v) in self.exit_waiting.iteritems() if v)
 
 	def wait_for_exit(self,task,waittid):
 		if waittid in self.taskmap:
@@ -92,42 +119,56 @@ class Scheduler(object):
 			return False
 
 	def schedule(self,task):
+		if task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			self.paused_in_ready.add(task)
+		else:
 		self.ready.append(task)
 	
-	def pause_task(self,task):
-		if task:
-			try:
-				self.ready.remove(task)
-			except ValueError:
-				return False
-			else:
-				return True
+	def schedule_now(self,task):
+		if task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			self.paused_in_ready.add(task)
 		else:
+			self.ready.appendleft(task)
+	
+	def pause_task(self,task):
+		if task is None:
+				return False
+		if task in self.paused_in_ready or task in self.paused_in_syscall:
 			return False
+		elif task in self.ready:
+			self.ready.remove(task)
+			self.paused_in_ready.add(task)
+		else:
+			self.paused_in_syscall.add(task)
+		return True
 	
 	def resume_task(self,task):
-		if task and task not in self.ready:
+		if task is None:
+			return False
+		if task in self.paused_in_ready:
 			# execute the resumed task directly once we exit the syscall
+			self.paused_in_ready.remove(task)
 			self.ready.appendleft(task)
 			return True
-		else:
-			return False
+		elif task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			return True
+		return False
 		
 	def wait_duration(self,task,duration):
-		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task(task))
-	
-	def resume_task_rate(self,task,rate):
-		if task and task not in self.ready:
-			# get current time
-			rate.last_time = self.current_time()
-			# execute the resumed task directly once we exit the syscall
-			self.ready.appendleft(task)
-			return True
-		else:
-			return False
+		def resume(task):
+			self.schedule_now(task)
+		self.set_timer_callback(self.current_time()+duration, lambda: resume(task))
 	
 	def wait_duration_rate(self,task,duration,rate):
-		self.set_timer_callback(self.current_time()+duration, lambda: self.resume_task_rate(task, rate))
+		def resume(task,rate):
+			# get current time
+			rate.last_time = self.current_time()
+			# if not paused, execute the resumed task directly once we exit the syscall
+			self.schedule_now(task)
+		self.set_timer_callback(self.current_time()+duration, lambda: resume(task, rate))
 	
 	def _add_condition(self,entry):
 		condition = entry[0]
@@ -152,7 +193,7 @@ class Scheduler(object):
 		if not condition():
 			self._add_condition(entry)
 		else:
-			self.ready.appendleft(task)
+			self.schedule_now(task)
 		
 	def test_conditions(self, name):
 		# is there any task waiting on this name?
@@ -162,7 +203,7 @@ class Scheduler(object):
 		candidates = copy.copy(self.cond_waiting[name])
 		for candidate in candidates:
 			(condition, task) = candidate
-			if condition():
+			if task not in self.paused_in_syscall and condition():
 				self.schedule(task)
 				self._del_condition(candidate)
 
@@ -279,6 +320,12 @@ class GetTid(SystemCall):
 		self.task.sendval = self.task.tid
 		self.sched.schedule(self.task)
 
+class GetTids(SystemCall):
+	""" Return all task IDs """
+	def handle(self):
+		self.task.sendval = self.sched.taskmap.keys()
+		self.sched.schedule(self.task)
+
 class NewTask(SystemCall):
 	""" Create a new task, return the task identifier """
 	def __init__(self,target):
@@ -315,7 +362,7 @@ class KillTasks(SystemCall):
 		self.sched.schedule(self.task)
 
 class KillAllTasksExcept(SystemCall):
-	""" Kill all tasks except a subsett, return the list of killed tasks """
+	""" Kill all tasks except a subset, return the list of killed tasks """
 	def __init__(self,except_tids):
 		self.except_tids = except_tids
 	def handle(self):
@@ -333,9 +380,55 @@ class WaitTask(SystemCall):
 	def handle(self):
 		result = self.sched.wait_for_exit(self.task,self.tid)
 		self.task.sendval = result
+		self.task.waitmode = Task.WAIT_ANY
 		# If waiting for a non-existent task,
 		# return immediately without waiting
 		if not result:
+			self.sched.schedule(self.task)
+
+
+class WaitAnyTasks(SystemCall):
+	""" Wait for any tasks to exit, return whether the wait was a success """
+	def __init__(self,tids):
+		self.tids = tids
+	def handle(self):
+		self.task.waitmode = Task.WAIT_ANY
+		# Check if all tasks exist
+		all_exist = True
+		non_existing_tid = None
+		for tid in self.tids:
+			if tid not in self.sched.taskmap:
+				all_exist = False
+				non_existing_tid = tid
+				break
+		# If all exist
+		if all_exist:
+			for tid in self.tids:
+				self.sched.wait_for_exit(self.task,tid)
+			#dont set sendval, we want exit() to assign the exiting tasks tid
+			#self.task.sendval = True
+		else:
+			# If waiting for a non-existent task,
+			# return immediately without waiting
+			self.task.sendval = non_existing_tid
+			self.sched.schedule(self.task)
+
+class WaitAllTasks(SystemCall):
+	""" Wait for all tasks to exit, return whether the wait was a success """
+	def __init__(self,tids):
+		self.tids = tids
+	def handle(self):
+		self.task.waitmode = Task.WAIT_ALL
+		any_exist = False
+		for tid in self.tids:
+			result = self.sched.wait_for_exit(self.task,tid)
+			any_exist = any_exist or result
+		# If waiting for non-existent tasks,
+		# return immediately without waiting
+		if any_exist:
+			self.task.sendval = True			
+		else:
+			self.task.sendval = False
 			self.sched.schedule(self.task)
 
 class PauseTask(SystemCall):
