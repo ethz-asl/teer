@@ -66,7 +66,7 @@ class ConditionVariable(object):
 class Scheduler(object):
 	""" The scheduler base object, do not instanciate directly """
 	def __init__(self):
-				# Map of all tasks
+		# Map of all tasks
 		self.taskmap = {}
 		# Deque of ready tasks
 		self.ready   = deque()   
@@ -100,7 +100,7 @@ class Scheduler(object):
 							waiting_tasks_list.remove(waiting_task)
 				# return the tid of the exiting_task 
 				task.sendval = exiting_task.tid
-			self.schedule(task)
+				self.schedule(task)
 			else:
 				are_still_waiting = False
 				for waited_tid, waiting_tasks_list in self.exit_waiting.iteritems():
@@ -108,6 +108,8 @@ class Scheduler(object):
 						if waiting_task.tid == task.tid:
 							are_still_waiting = True
 				if not are_still_waiting:
+					# return the tid of the exiting_task 
+					task.sendval = exiting_task.tid
 					self.schedule(task)
 		self.exit_waiting = dict((k,v) for (k,v) in self.exit_waiting.iteritems() if v)
 
@@ -123,7 +125,7 @@ class Scheduler(object):
 			self.paused_in_syscall.remove(task)
 			self.paused_in_ready.add(task)
 		else:
-		self.ready.append(task)
+			self.ready.append(task)
 	
 	def schedule_now(self,task):
 		if task in self.paused_in_syscall:
@@ -133,14 +135,13 @@ class Scheduler(object):
 			self.ready.appendleft(task)
 	
 	def pause_task(self,task):
-		if task is None:
-				return False
-		if task in self.paused_in_ready or task in self.paused_in_syscall:
+		if task is None or task in self.paused_in_ready or task in self.paused_in_syscall:
 			return False
-		elif task in self.ready:
+		if task in self.ready:
 			self.ready.remove(task)
 			self.paused_in_ready.add(task)
 		else:
+			assert task.tid in self.taskmap
 			self.paused_in_syscall.add(task)
 		return True
 	
