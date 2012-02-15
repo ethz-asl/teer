@@ -19,15 +19,17 @@ class Task(object):
 	WAIT_ALL = 2
 	taskid = 0
 	def __init__(self,target):
+		""" Initialize """
 		Task.taskid += 1
 		self.tid     = Task.taskid   # Task ID
 		self.target  = target        # Target coroutine
 		self.sendval = None          # Value to send
 		self.waitmode = Task.WAIT_ANY
 	def __repr__(self):
-		return 'Task ' + str(self.tid) + ' (' + self.target.__name__ + ')'
-	# Run a task until it hits the next yield statement
+		""" Debug information on a task """
+		return 'Task ' + str(self.tid) + ' (' + self.target.__name__ + ') @ ' + str(id(self))
 	def run(self):
+		""" Run a task until it hits the next yield statement"""
 		return self.target.send(self.sendval)
 
 # ------------------------------------------------------------
@@ -36,16 +38,19 @@ class Task(object):
 class ConditionVariable(object):
 	""" The basic conditional variable """
 	def __init__(self, initval=None):
+		""" Initialize """
 		self.val = initval
 		self.myname = None
 	def __get__(self, obj, objtype):
+		""" Return the value """
 		return self.val
 	def __set__(self, obj, val):
+		""" Set a value, evaluate conditions for tasks waiting on this variable """
 		self.val = val
 		self._set_name(type(obj))
 		obj.test_conditions(self.myname)
 	def _set_name(self, cls, top_level=True):
-		# if unknown, retrieve my own name
+		""" if unknown, retrieve my own name using introspection """
 		if self.myname is None:
 			members = cls.__dict__
 			# first look into members
@@ -141,7 +146,6 @@ class Scheduler(object):
 			self.ready.remove(task)
 			self.paused_in_ready.add(task)
 		else:
-			assert task.tid in self.taskmap
 			self.paused_in_syscall.add(task)
 		return True
 	
@@ -207,9 +211,9 @@ class Scheduler(object):
 			if task not in self.paused_in_syscall and condition():
 				self.schedule(task)
 				self._del_condition(candidate)
-
-	# Run all tasks until none is ready
+	
 	def step(self):
+		""" Run all tasks until none is ready """
 		#print 'ready queue A: ' + str(self.ready)
 		while self.ready:
 			task = self.ready.popleft()
@@ -229,42 +233,42 @@ class Scheduler(object):
 	
 	# Methods that might or must be overridden by children
 	
-	# Get current time
 	def current_time(self):
+		""" Get current time """
 		return time.time()
 	
-	# Sleep a certain amount of time
 	def sleep(self, duration):
+		""" Sleep a certain amount of time """
 		time.sleep(duration)
 	
-	# Execute function f at time t
 	def set_timer_callback(self, t, f):
+		""" Execute function f at time t """
 		raise NotImplementedError('timer callback mechanism must be provided by derived class')
 	
-	# Log for task created
 	def log_task_created(self, task):
+		""" Log for task created """
 		print time.ctime() + " - Task %s (tid %d) created" % (task.target.__name__, task.tid)
 	
-	# Log for task terminated
 	def log_task_terminated(self, task):
+		""" Log for task terminated """
 		print time.ctime() + " - Task %s (tid %d) terminated" % (task.target.__name__, task.tid)
 
 class TimerScheduler(Scheduler):
 	""" A scheduler that sleeps when there is nothing to do. """
 	
 	def __init__(self):
+		""" Initialize """
 		super(TimerScheduler, self).__init__()
 		self.timer_cb = []
 		self.timer_counter = 0
 	
-	# Implement the timer callback
 	def set_timer_callback(self, t, f):
-		#print 'Set timer callback at ' + str(t) + ' ' + str(self.current_time())
+		""" Implement the timer callback """
 		heapq.heappush(self.timer_cb, [t, self.timer_counter, f])
 		self.timer_counter += 1
 	
-	# Run until there is no task to schedule
 	def run(self):
+		""" Run until there is no task to schedule """
 		while self.timer_cb or self.ready or self.cond_waiting:
 			self.step()
 			t, counter, f = heapq.heappop(self.timer_cb)
@@ -274,8 +278,8 @@ class TimerScheduler(Scheduler):
 			f()
 			self.step()
 	
-	# Schedule all tasks with past deadlines and step
 	def timer_step(self):
+		""" Schedule all tasks with past deadlines and step """
 		while self.timer_cb:
 			t, counter, f = heapq.heappop(self.timer_cb)
 			duration = t - self.current_time()
@@ -293,9 +297,11 @@ class TimerScheduler(Scheduler):
 class Rate(object):
 	""" Helper class to execute a loop at a certain rate """
 	def __init__(self,duration,initial_time):
+		""" Initialize """
 		self.duration = duration
 		self.last_time = initial_time
 	def sleep(self,sched,task):
+		""" Sleep for the rest of this period """
 		cur_time = sched.current_time()
 		delta_time = self.duration - (cur_time - self.last_time)
 		if delta_time > 0:
@@ -307,7 +313,6 @@ class Rate(object):
 # ------------------------------------------------------------
 #                   === System Calls ===
 # ------------------------------------------------------------
-
 
 class SystemCall(object):
 	""" Parent of all system calls """
@@ -519,6 +524,3 @@ class TeerPrint(SystemCall):
 	def handle(self):
 		print "[teer tid: " + str(self.task.tid) + "] " + self.msg
 		self.sched.schedule(self.task)
-
-# TODO list
-# - if needed, events
