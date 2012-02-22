@@ -329,6 +329,12 @@ class SystemCall(object):
 		""" Called in the scheduler context """
 		pass
 
+class GetScheduler(SystemCall):
+	""" Return the scheduler, useful to access condition variables """
+	def handle(self):
+		self.task.sendval = self.sched
+		self.sched.schedule(self.task)
+
 class GetTid(SystemCall):
 	""" Return a task's ID number """
 	def handle(self):
