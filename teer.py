@@ -89,6 +89,15 @@ class Scheduler(object):
 		self.schedule(newtask)
 		self.log_task_created(newtask)
 		return newtask.tid
+	
+	# temporary test for kill_task
+	def kill_task(self,tid):
+		task = self.taskmap.get(tid,None)
+		if task:
+			task.target.close() 
+			return True
+		else:
+			return False
 
 	def exit(self,exiting_task):
 		self.log_task_terminated(exiting_task)
