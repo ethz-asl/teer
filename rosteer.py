@@ -65,6 +65,6 @@ class ROSConditionVariable(ConditionVariable):
 		obj.wake_cond.acquire()
 		self.val = val
 		self._set_name(type(obj))
-		obj.test_conditions(self.myname)
+		obj._test_conditions(self.myname)
 		obj.wake_cond.notify()
 		obj.wake_cond.release()
