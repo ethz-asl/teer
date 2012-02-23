@@ -1,8 +1,10 @@
 from teer import *
 import sys
 
+sched = None
+
 def tick():
-	rate = yield CreateRate(10)
+	rate = sched.create_rate(10)
 	while True:
 		print '.',
 		sys.stdout.flush()
@@ -20,13 +22,13 @@ def world():
 	print 'but...'
 
 def hello():
-	tick_tid = yield NewTask(tick())
+	tick_tid = sched.new_task(tick())
 	print 'Hello'
 	yield WaitDuration(1)
 	print 'I am rather shy'
 	yield WaitDuration(2)
 	print 'I might say it'
-	world_tid = yield NewTask(world())
+	world_tid = sched.new_task(world())
 	print 'I\'m not alone'
 	yield WaitDuration(0.2)
 	print 'I talk'
@@ -40,10 +42,10 @@ def hello():
 	print 'I liked world'
 	yield WaitDuration(1)
 	print 'Really, I\'m tired, I will die...'
-	yield KillTask(tick_tid)
+	sched.kill_task(tick_tid)
 
 sched = TimerScheduler()
-sched.new(hello())
+sched.new_task(hello())
 print 'Running scheduler'
 sched.run()
 print 'All tasks are dead, we better leave this place'

@@ -48,7 +48,7 @@ class ConditionVariable(object):
 		""" Set a value, evaluate conditions for tasks waiting on this variable """
 		self.val = val
 		self._set_name(type(obj))
-		obj.test_conditions(self.myname)
+		obj._test_conditions(self.myname)
 	def _set_name(self, cls, top_level=True):
 		""" if unknown, retrieve my own name using introspection """
 		if self.myname is None:
@@ -71,7 +71,8 @@ class ConditionVariable(object):
 class Scheduler(object):
 	""" The scheduler base object, do not instanciate directly """
 	def __init__(self):
-		# Map of all tasks
+		""" Initialize """
+		# Map of all task identifiers to tasks
 		self.taskmap = {}
 		# Deque of ready tasks
 		self.ready   = deque()   
@@ -82,25 +83,151 @@ class Scheduler(object):
 		# Task being paused by another task
 		self.paused_in_syscall = set()
 		self.paused_in_ready = set()
+		# Not running a task initially
+		self.current_task = None
 	
-	def new(self,target):
+	# Public API, these functions are safe to be called from within a task or from outside
+	
+	def list_all_tids(self):
+		""" Return all task identifiers """
+		return self.taskmap.keys()
+	
+	def get_current_tid(self):
+		""" Return the identifier of current task, None if not called from a task """
+		if self.current_task is not None:
+			return self.current_task.tid
+		else:
+			return None
+	
+	def new_task(self, target):
+		""" Create a new task from function target, return the task identifier """
 		newtask = Task(target)
 		self.taskmap[newtask.tid] = newtask
-		self.schedule(newtask)
-		self.log_task_created(newtask)
+		self._schedule(newtask)
+		self._log_task_created(newtask)
 		return newtask.tid
 	
-	# temporary test for kill_task
-	def kill_task(self,tid):
+	def kill_task(self, tid):
+		""" Kill a task, return whether the task was killed """
 		task = self.taskmap.get(tid,None)
 		if task:
 			task.target.close() 
 			return True
 		else:
 			return False
+	
+	def kill_tasks(self, tids):
+		""" Kill multiple tasks, return the list of killed tasks """
+		return filter(self.kill_task, tids)
+	
+	def kill_all_tasks_except(self, tids):
+		""" Kill all tasks except a subset, return the list of killed tasks """
+		to_kill = filter(lambda tid: tid not in tids, self.list_all_tids())
+		return self.kill_tasks(to_kill)
 
-	def exit(self,exiting_task):
-		self.log_task_terminated(exiting_task)
+	def pause_task(self, tid):
+		""" Pause a task, return whether the task was paused """
+		task = self.taskmap.get(tid,None)
+		if task is None \
+			or task is self.current_task\
+			or task in self.paused_in_ready\
+			or task in self.paused_in_syscall:
+			return False
+		if task in self.ready:
+			self.ready.remove(task)
+			self.paused_in_ready.add(task)
+		else:
+			self.paused_in_syscall.add(task)
+		return True
+	
+	def pause_tasks(self, tids):
+		""" Pause multiple tasks, return the lits of paused tasks """
+		return filter(self.pause_task, tids)
+	
+	def resume_task(self, tid):
+		""" Resume a task, return whether the task was resumed successfully """
+		task = self.taskmap.get(tid,None)
+		if task is None or task is self.current_task:
+			return False
+		if task in self.paused_in_ready:
+			self.paused_in_ready.remove(task)
+			self.ready.append(task)
+			return True
+		elif task in self.paused_in_syscall:
+			self.paused_in_syscall.remove(task)
+			return True
+		return False
+	
+	def resume_tasks(self, tids):
+		""" Resume the execution of multiple tasks, return the list of resumed tasks """
+		return filter(self.resume, tids)
+	
+	def create_rate(self, rate):
+		""" Create a rate object, to have a loop at a certain frequency """
+		duration = 1./rate
+		initial_time = self.current_time()
+		return Rate(duration, initial_time)
+	
+	def printd(self, msg):
+		""" Print something including the current task identifier """
+		print "[teer tid: " + str(self.get_current_tid()) + "] " + msg
+	
+	# Public API, these funtions must be called outside a task
+	
+	def step(self):
+		""" Run all tasks until none is ready """
+		if self.current_task is not None:
+			raise RuntimeError('Scheduler.step() called within a task.')
+		while self.ready:
+			task = self.ready.popleft()
+			try:
+				#print 'Running ' + str(task)
+				self.current_task = task
+				result = task.run()
+				self.current_task = None
+				if isinstance(result,SystemCall):
+					result.task  = task
+					result.sched = self
+					result.handle()
+					#print 'ready queue B: ' + str(self.ready)
+					continue
+			except StopIteration:
+				self.current_task = None
+				self._exit(task)
+				continue
+			self._schedule(task)
+	
+	# Public API, these functions are safe to be called from within a task or from outside
+	# these functions can be overriden by children
+	
+	def current_time(self):
+		""" Return the current time """
+		return time.time()
+	
+	# Protected implementations, these functions can only be called by functions from this object
+	# these functions can be overriden by children
+	
+	def _sleep(self, duration):
+		""" Sleep a certain amount of time """
+		time.sleep(duration)
+	
+	def _set_timer_callback(self, t, f):
+		""" Execute function f at time t """
+		raise NotImplementedError('timer callback mechanism must be provided by derived class')
+	
+	def _log_task_created(self, task):
+		""" Log for task created """
+		print time.ctime() + " - Task %s (tid %d) created" % (task.target.__name__, task.tid)
+	
+	def _log_task_terminated(self, task):
+		""" Log for task terminated """
+		print time.ctime() + " - Task %s (tid %d) terminated" % (task.target.__name__, task.tid)
+	
+	# Protected implementations, these functions can only be called by functions from this object
+
+	def _exit(self,exiting_task):
+		""" Handle the termination of a task """
+		self._log_task_terminated(exiting_task)
 		del self.taskmap[exiting_task.tid]
 		# Notify other tasks waiting for exit
 		to_remove_keys = []
@@ -114,7 +241,7 @@ class Scheduler(object):
 							waiting_tasks_list.remove(waiting_task)
 				# return the tid of the exiting_task 
 				task.sendval = exiting_task.tid
-				self.schedule(task)
+				self._schedule(task)
 			else:
 				are_still_waiting = False
 				for waited_tid, waiting_tasks_list in self.exit_waiting.iteritems():
@@ -124,65 +251,43 @@ class Scheduler(object):
 				if not are_still_waiting:
 					# return the tid of the exiting_task 
 					task.sendval = exiting_task.tid
-					self.schedule(task)
+					self._schedule(task)
 		self.exit_waiting = dict((k,v) for (k,v) in self.exit_waiting.iteritems() if v)
 
-	def wait_for_exit(self,task,waittid):
+	def _wait_for_exit(self,task,waittid):
+		""" Set task waiting of the exit of task waittid """
 		if waittid in self.taskmap:
 			self.exit_waiting.setdefault(waittid,[]).append(task)
 			return True
 		else:
 			return False
 
-	def schedule(self,task):
+	def _schedule(self,task):
 		if task in self.paused_in_syscall:
 			self.paused_in_syscall.remove(task)
 			self.paused_in_ready.add(task)
 		else:
 			self.ready.append(task)
 	
-	def schedule_now(self,task):
+	def _schedule_now(self,task):
 		if task in self.paused_in_syscall:
 			self.paused_in_syscall.remove(task)
 			self.paused_in_ready.add(task)
 		else:
 			self.ready.appendleft(task)
-	
-	def pause_task(self,task):
-		if task is None or task in self.paused_in_ready or task in self.paused_in_syscall:
-			return False
-		if task in self.ready:
-			self.ready.remove(task)
-			self.paused_in_ready.add(task)
-		else:
-			self.paused_in_syscall.add(task)
-		return True
-	
-	def resume_task(self,task):
-		if task is None:
-			return False
-		if task in self.paused_in_ready:
-			# execute the resumed task directly once we exit the syscall
-			self.paused_in_ready.remove(task)
-			self.ready.appendleft(task)
-			return True
-		elif task in self.paused_in_syscall:
-			self.paused_in_syscall.remove(task)
-			return True
-		return False
 		
-	def wait_duration(self,task,duration):
+	def _wait_duration(self,task,duration):
 		def resume(task):
-			self.schedule_now(task)
-		self.set_timer_callback(self.current_time()+duration, lambda: resume(task))
+			self._schedule_now(task)
+		self._set_timer_callback(self.current_time()+duration, lambda: resume(task))
 	
-	def wait_duration_rate(self,task,duration,rate):
+	def _wait_duration_rate(self,task,duration,rate):
 		def resume(task,rate):
 			# get current time
 			rate.last_time = self.current_time()
 			# if not paused, execute the resumed task directly once we exit the syscall
-			self.schedule_now(task)
-		self.set_timer_callback(self.current_time()+duration, lambda: resume(task, rate))
+			self._schedule_now(task)
+		self._set_timer_callback(self.current_time()+duration, lambda: resume(task, rate))
 	
 	def _add_condition(self,entry):
 		condition = entry[0]
@@ -201,15 +306,15 @@ class Scheduler(object):
 				if not self.cond_waiting[var]:
 					del self.cond_waiting[var]
 	
-	def wait_condition(self,task,condition):
+	def _wait_condition(self,task,condition):
 		# add a new condition and directly evalutate it once
 		entry = (condition,task)
 		if not condition():
 			self._add_condition(entry)
 		else:
-			self.schedule_now(task)
+			self._schedule_now(task)
 		
-	def test_conditions(self, name):
+	def _test_conditions(self, name):
 		# is there any task waiting on this name?
 		if name not in self.cond_waiting:
 			return
@@ -218,49 +323,9 @@ class Scheduler(object):
 		for candidate in candidates:
 			(condition, task) = candidate
 			if task not in self.paused_in_syscall and condition():
-				self.schedule(task)
+				self._schedule(task)
 				self._del_condition(candidate)
-	
-	def step(self):
-		""" Run all tasks until none is ready """
-		#print 'ready queue A: ' + str(self.ready)
-		while self.ready:
-			task = self.ready.popleft()
-			try:
-				#print 'Running ' + str(task)
-				result = task.run()
-				if isinstance(result,SystemCall):
-					result.task  = task
-					result.sched = self
-					result.handle()
-					#print 'ready queue B: ' + str(self.ready)
-					continue
-			except StopIteration:
-				self.exit(task)
-				continue
-			self.schedule(task)
-	
-	# Methods that might or must be overridden by children
-	
-	def current_time(self):
-		""" Get current time """
-		return time.time()
-	
-	def sleep(self, duration):
-		""" Sleep a certain amount of time """
-		time.sleep(duration)
-	
-	def set_timer_callback(self, t, f):
-		""" Execute function f at time t """
-		raise NotImplementedError('timer callback mechanism must be provided by derived class')
-	
-	def log_task_created(self, task):
-		""" Log for task created """
-		print time.ctime() + " - Task %s (tid %d) created" % (task.target.__name__, task.tid)
-	
-	def log_task_terminated(self, task):
-		""" Log for task terminated """
-		print time.ctime() + " - Task %s (tid %d) terminated" % (task.target.__name__, task.tid)
+
 
 class TimerScheduler(Scheduler):
 	""" A scheduler that sleeps when there is nothing to do. """
@@ -271,24 +336,25 @@ class TimerScheduler(Scheduler):
 		self.timer_cb = []
 		self.timer_counter = 0
 	
-	def set_timer_callback(self, t, f):
-		""" Implement the timer callback """
-		heapq.heappush(self.timer_cb, [t, self.timer_counter, f])
-		self.timer_counter += 1
+	# Public API, these funtions must be called outside a task
 	
 	def run(self):
 		""" Run until there is no task to schedule """
+		if self.current_task is not None:
+			raise RuntimeError('TimerScheduler.run() called within a task.')
 		while self.timer_cb or self.ready or self.cond_waiting:
 			self.step()
 			t, counter, f = heapq.heappop(self.timer_cb)
 			duration = t - self.current_time()
 			if duration >= 0:
-				self.sleep(duration)
+				self._sleep(duration)
 			f()
 			self.step()
 	
 	def timer_step(self):
 		""" Schedule all tasks with past deadlines and step """
+		if self.current_task is not None:
+			raise RuntimeError('TimerScheduler.timer_step() called within a task.')
 		while self.timer_cb:
 			t, counter, f = heapq.heappop(self.timer_cb)
 			duration = t - self.current_time()
@@ -298,6 +364,13 @@ class TimerScheduler(Scheduler):
 				heapq.heappush(self.timer_cb, [t, counter, f])
 				break
 		self.step()
+	
+	# Protected implementations, these functions can only be called by functions from this object
+	
+	def _set_timer_callback(self, t, f):
+		""" Implement the timer callback """
+		heapq.heappush(self.timer_cb, [t, self.timer_counter, f])
+		self.timer_counter += 1
 	
 # ------------------------------------------------------------
 #                   === Helper objects ===
@@ -314,9 +387,9 @@ class Rate(object):
 		cur_time = sched.current_time()
 		delta_time = self.duration - (cur_time - self.last_time)
 		if delta_time > 0:
-			sched.wait_duration_rate(task, delta_time, self)
+			sched._wait_duration_rate(task, delta_time, self)
 		else:
-			sched.schedule(task)
+			sched._schedule(task)
 		return delta_time
 
 # ------------------------------------------------------------
@@ -327,86 +400,32 @@ class SystemCall(object):
 	""" Parent of all system calls """
 	def handle(self):
 		""" Called in the scheduler context """
-		pass
+		raise NotImplementedError('system call superclass should not be used directly')
 
+class Pass(SystemCall):
+	""" Pass the execution to other tasks """
+	def handle(self):
+		self.task.sendval = True
+		self.sched._schedule(self.task)
+	
 class GetScheduler(SystemCall):
 	""" Return the scheduler, useful to access condition variables """
 	def handle(self):
 		self.task.sendval = self.sched
-		self.sched.schedule(self.task)
-
-class GetTid(SystemCall):
-	""" Return a task's ID number """
-	def handle(self):
-		self.task.sendval = self.task.tid
-		self.sched.schedule(self.task)
-
-class GetTids(SystemCall):
-	""" Return all task IDs """
-	def handle(self):
-		self.task.sendval = self.sched.taskmap.keys()
-		self.sched.schedule(self.task)
-
-class NewTask(SystemCall):
-	""" Create a new task, return the task identifier """
-	def __init__(self,target):
-		self.target = target
-	def handle(self):
-		tid = self.sched.new(self.target)
-		self.task.sendval = tid
-		self.sched.schedule(self.task)
-
-class KillTask(SystemCall):
-	""" Kill a task, return whether the task was killed """
-	def __init__(self,tid):
-		self.tid = tid
-	def handle(self):
-		task = self.sched.taskmap.get(self.tid,None)
-		if task:
-			task.target.close() 
-			self.task.sendval = True
-		else:
-			self.task.sendval = False
-		self.sched.schedule(self.task)
-
-class KillTasks(SystemCall):
-	""" Kill multiple tasks, return the list of killed tasks """
-	def __init__(self,tids):
-		self.tids = tids
-	def handle(self):
-		self.task.sendval = []
-		for tid in self.tids:
-			task = self.sched.taskmap.get(tid,None)
-			if task:
-				task.target.close() 
-				self.task.sendval.append(tid)
-		self.sched.schedule(self.task)
-
-class KillAllTasksExcept(SystemCall):
-	""" Kill all tasks except a subset, return the list of killed tasks """
-	def __init__(self,except_tids):
-		self.except_tids = except_tids
-	def handle(self):
-		self.task.sendval = []
-		for tid, task in self.sched.taskmap.items():
-			if tid not in self.except_tids:
-				task.target.close()
-				self.task.sendval.append(task)
-		self.sched.schedule(self.task)
+		self.sched._schedule(self.task)
 
 class WaitTask(SystemCall):
 	""" Wait for a task to exit, return whether the wait was a success """
 	def __init__(self,tid):
 		self.tid = tid
 	def handle(self):
-		result = self.sched.wait_for_exit(self.task,self.tid)
+		result = self.sched._wait_for_exit(self.task,self.tid)
 		self.task.sendval = result
 		self.task.waitmode = Task.WAIT_ANY
 		# If waiting for a non-existent task,
 		# return immediately without waiting
 		if not result:
-			self.sched.schedule(self.task)
-
+			self.sched._schedule(self.task)
 
 class WaitAnyTasks(SystemCall):
 	""" Wait for any tasks to exit, return whether the wait was a success """
@@ -425,14 +444,14 @@ class WaitAnyTasks(SystemCall):
 		# If all exist
 		if all_exist:
 			for tid in self.tids:
-				self.sched.wait_for_exit(self.task,tid)
+				self.sched._wait_for_exit(self.task,tid)
 			#dont set sendval, we want exit() to assign the exiting tasks tid
 			#self.task.sendval = True
 		else:
 			# If waiting for a non-existent task,
 			# return immediately without waiting
 			self.task.sendval = non_existing_tid
-			self.sched.schedule(self.task)
+			self.sched._schedule(self.task)
 
 class WaitAllTasks(SystemCall):
 	""" Wait for all tasks to exit, return whether the wait was a success """
@@ -442,7 +461,7 @@ class WaitAllTasks(SystemCall):
 		self.task.waitmode = Task.WAIT_ALL
 		any_exist = False
 		for tid in self.tids:
-			result = self.sched.wait_for_exit(self.task,tid)
+			result = self.sched._wait_for_exit(self.task,tid)
 			any_exist = any_exist or result
 		# If waiting for non-existent tasks,
 		# return immediately without waiting
@@ -450,62 +469,14 @@ class WaitAllTasks(SystemCall):
 			self.task.sendval = True			
 		else:
 			self.task.sendval = False
-			self.sched.schedule(self.task)
-
-class PauseTask(SystemCall):
-	""" Pause a task, return whether the task was paused successfully """
-	def __init__(self,tid):
-		self.tid = tid
-	def handle(self):
-		task = self.sched.taskmap.get(self.tid,None)
-		self.task.sendval = self.sched.pause_task(task)
-		self.sched.schedule(self.task)
-
-class PauseTasks(SystemCall):
-	""" Pause multiple tasks, return the list of paused tasks """
-	def __init__(self,tids):
-		self.tids = tids
-	def handle(self):
-		self.task.sendval = []
-		for tid in self.tids:
-			task = self.sched.taskmap.get(tid,None)
-			if self.sched.pause_task(task):
-				self.task.sendval.append(tid)
-		self.sched.schedule(self.task)
-
-class ResumeTask(SystemCall):
-	""" Resume a task, return whether the task was resumed successfully """
-	def __init__(self,tid):
-		self.tid = tid
-	def handle(self):
-		task = self.sched.taskmap.get(self.tid,None)
-		self.task.sendval = self.sched.resume_task(task)
-		self.sched.schedule(self.task)
-
-class ResumeTasks(SystemCall):
-	""" Resume the execution of given tasks, return the list of resumed tasks """
-	def __init__(self,tids):
-		self.tids = tids
-	def handle(self):
-		self.task.sendval = []
-		for tid in self.tids:
-			task = self.sched.taskmap.get(tid,None)
-			if self.sched.resume_task(task):
-				self.task.sendval.append(tid)
-		self.sched.schedule(self.task)
-
-class GetCurrentTime(SystemCall):
-	""" Return the current time """
-	def handle(self):
-		self.task.sendval = self.sched.current_time()
-		self.sched.schedule(self.task)
+			self.sched._schedule(self.task)
 
 class WaitDuration(SystemCall):
 	""" Pause current task for a certain duration """
 	def __init__(self,duration):
 		self.duration = duration
 	def handle(self):
-		self.sched.wait_duration(self.task, self.duration)
+		self.sched._wait_duration(self.task, self.duration)
 		self.task.sendval = None
 
 class WaitCondition(SystemCall):
@@ -513,17 +484,8 @@ class WaitCondition(SystemCall):
 	def __init__(self,condition):
 		self.condition = condition
 	def handle(self):
-		self.sched.wait_condition(self.task,self.condition)
+		self.sched._wait_condition(self.task,self.condition)
 		self.task.sendval = None
-
-class CreateRate(SystemCall):
-	""" Create a rate object, to have loops of certain frequencies """
-	def __init__(self,rate):
-		self.duration = 1./rate
-	def handle(self):
-		initial_time = self.sched.current_time()
-		self.task.sendval = Rate(self.duration, initial_time)
-		self.sched.schedule(self.task)
 
 class Sleep(SystemCall):
 	""" Sleep using a rate object """
@@ -531,11 +493,3 @@ class Sleep(SystemCall):
 		self.rate = rate
 	def handle(self):
 		self.task.sendval = self.rate.sleep(self.sched, self.task)
-		
-class TeerPrint(SystemCall):
-	""" Print something including the current task id"""
-	def __init__(self, msg):
-		self.msg = msg
-	def handle(self):
-		print "[teer tid: " + str(self.task.tid) + "] " + self.msg
-		self.sched.schedule(self.task)
