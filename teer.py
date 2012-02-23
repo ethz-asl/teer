@@ -144,6 +144,11 @@ class Scheduler(object):
 		""" Pause multiple tasks, return the lits of paused tasks """
 		return filter(self.pause_task, tids)
 	
+	def pause_all_tasks_except(self, tids):
+		""" Pause all tasks except a subset, return the list of paused tasks """
+		to_pause = filter(lambda tid: tid not in tids, self.list_all_tids())
+		return self.pause_tasks(to_pause)
+	
 	def resume_task(self, tid):
 		""" Resume a task, return whether the task was resumed successfully """
 		task = self.taskmap.get(tid,None)
@@ -161,6 +166,11 @@ class Scheduler(object):
 	def resume_tasks(self, tids):
 		""" Resume the execution of multiple tasks, return the list of resumed tasks """
 		return filter(self.resume, tids)
+	
+	def resume_all_tasks_except(self, tids):
+		""" Resume all tasks except a subset, return the list of resumed tasks """
+		to_resume = filter(lambda tid: tid not in tids, self.list_all_tids())
+		return self.resume_tasks(to_resume)
 	
 	def create_rate(self, rate):
 		""" Create a rate object, to have a loop at a certain frequency """
