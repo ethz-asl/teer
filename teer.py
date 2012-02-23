@@ -165,7 +165,7 @@ class Scheduler(object):
 	
 	def resume_tasks(self, tids):
 		""" Resume the execution of multiple tasks, return the list of resumed tasks """
-		return filter(self.resume, tids)
+		return filter(self.resume_task, tids)
 	
 	def resume_all_tasks_except(self, tids):
 		""" Resume all tasks except a subset, return the list of resumed tasks """
