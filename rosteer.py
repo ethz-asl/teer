@@ -23,13 +23,26 @@ class ROSScheduler(Scheduler):
 			self.wake_cond.release()
 		rospy.on_shutdown(stop_run)
 	
+	# Public API, these functions are safe to be called from within a task or from outside
+	
 	def current_time(self):
 		return rospy.Time.now().to_sec()
 	
-	def sleep(self, duration):
+	# Public API, these funtions must be called outside a task
+	
+	def run(self):
+		self.wake_cond.acquire()
+		self.step()
+		while not rospy.is_shutdown() and self.running and ((self.in_timer_count != 0) or self.cond_waiting or self.ready):
+			self.wake_cond.wait()
+			self.step()
+	
+	# Protected implementations, these functions can only be called by functions from this object
+	
+	def _sleep(self, duration):
 		rospy.sleep(duration)
 	
-	def set_timer_callback(self, t, f):
+	def _set_timer_callback(self, t, f):
 		def timer_callback(event):
 			self.wake_cond.acquire()
 			self.in_timer_count -= 1
@@ -38,13 +51,6 @@ class ROSScheduler(Scheduler):
 			self.wake_cond.release()
 		self.in_timer_count += 1
 		rospy.Timer(rospy.Duration(t - self.current_time()), timer_callback, True)
-	
-	def run(self):
-		self.wake_cond.acquire()
-		self.step()
-		while not rospy.is_shutdown() and self.running and ((self.in_timer_count != 0) or self.cond_waiting or self.ready):
-			self.wake_cond.wait()
-			self.step()
 
 # ------------------------------------------------------------
 #	 === Conditional Variables working with ROS' threading ===
