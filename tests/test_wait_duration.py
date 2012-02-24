@@ -1,5 +1,6 @@
-from teer import *
 import sys
+sys.path.append('..')
+from teer import *
 
 sched = None
 
