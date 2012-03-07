@@ -5,13 +5,6 @@
 import sys
 sys.path.append('..')
 from teer import *
-import math
-
-sched = None
-
-class MyScheduler(TimerScheduler):
-	def __init__(self):
-		super(MyScheduler,self).__init__()
 
 def main_task():
 	def printer(nr):
@@ -43,7 +36,7 @@ def main_task():
 	wait_id = sched.new_task(test_wait_all())
 	yield WaitTask(wait_id)
 
-sched = MyScheduler()
+sched = TimerScheduler()
 sched.new_task(main_task())
 print 'Running scheduler'
 sched.run()

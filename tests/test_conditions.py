@@ -7,8 +7,6 @@ sys.path.append('..')
 from teer import *
 import math
 
-sched = None
-
 class MyScheduler(TimerScheduler):
 	chlorophyll_level = ConditionVariable(0.)
 	energy_level = ConditionVariable(100)

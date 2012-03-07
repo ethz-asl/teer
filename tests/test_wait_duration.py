@@ -1,8 +1,10 @@
+# -*- coding: utf-8 -*-
+# kate: replace-tabs off; indent-width 4; indent-mode normal
+# vim: ts=4:sw=4:noexpandtab
+
 import sys
 sys.path.append('..')
 from teer import *
-
-sched = None
 
 def tick():
 	rate = sched.create_rate(10)
